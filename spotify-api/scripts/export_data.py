@@ -8,7 +8,7 @@ imported directly into React/web applications, avoiding runtime API calls.
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from spotify_client import create_client_from_env, validate_credentials, get_validation_errors
 
 
@@ -103,7 +103,7 @@ class SpotifyDataExporter:
             List of artist dictionaries
         """
         print(f"📊 Exporting top artists ({time_range}, limit: {limit})...")
-        artists = self.client.get_user_top_artists(time_range=time_range, limit=limit)
+        artists = self.client.get_top_items(item_type="artists", time_range=time_range, limit=limit)
         
         # Sanitize data for export
         exported = []
@@ -135,7 +135,7 @@ class SpotifyDataExporter:
             List of track dictionaries
         """
         print(f"📊 Exporting top tracks ({time_range}, limit: {limit})...")
-        tracks = self.client.get_user_top_tracks(time_range=time_range, limit=limit)
+        tracks = self.client.get_top_items(item_type="tracks", time_range=time_range, limit=limit)
         
         # Sanitize data for export
         exported = []
@@ -220,7 +220,7 @@ class SpotifyDataExporter:
             print(f"\n❌ Export failed: {str(e)}\n")
             raise
     
-    def _save_json(self, filename: str, data: any):
+    def _save_json(self, filename: str, data: Any):
         """Save data as JSON file."""
         filepath = self.output_dir / filename
         with open(filepath, 'w', encoding='utf-8') as f:

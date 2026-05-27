@@ -13,3 +13,7 @@ python-dotenv>=1.0.0
 # Cover art generation dependencies
 cairosvg>=2.7.0
 pillow>=10.0.0
+
+# Party DJ server
+flask>=3.0.0
+qrcode>=7.4.2

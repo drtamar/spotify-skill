@@ -18,9 +18,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from flask import Flask, jsonify, request, render_template_string
 from spotify_client import SpotifyClient
-from credentials import load_credentials
 
-load_credentials()
+# Load credentials: env vars (Cloud Run) → .env file → .env.encrypted
+if not os.getenv("SPOTIFY_CLIENT_ID"):
+    try:
+        from credentials import load_credentials
+        load_credentials()
+    except Exception:
+        pass
 
 app = Flask(__name__)
 

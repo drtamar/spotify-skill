@@ -17,3 +17,5 @@ pillow>=10.0.0
 # Party DJ server
 flask>=3.0.0
 qrcode>=7.4.2
+
+# Credential encryption — uses Python stdlib only (no extra package needed)

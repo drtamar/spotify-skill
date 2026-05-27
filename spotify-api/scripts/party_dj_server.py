@@ -22,9 +22,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from flask import Flask, jsonify, request, render_template_string
 from spotify_client import SpotifyClient
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from credentials import load_credentials
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_credentials()
 
 app = Flask(__name__)
 

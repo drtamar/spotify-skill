@@ -33,8 +33,8 @@ done
 # ── Detect project ─────────────────────────────────────────────────────────────
 PROJECT=$(gcloud config get-value project 2>/dev/null)
 if [ -z "$PROJECT" ]; then
-  echo "ERROR: No GCloud project set. Run: gcloud config set project YOUR_PROJECT_ID"
-  exit 1
+  PROJECT="tams-parties"
+  gcloud config set project "$PROJECT" --quiet
 fi
 IMAGE="gcr.io/$PROJECT/$SERVICE_NAME"
 

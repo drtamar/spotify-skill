@@ -15,8 +15,8 @@ set -e
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SERVICE_NAME="party-dj"
-REGION="us-central1"          # change to region nearest your guests
-SUBDOMAIN=""
+REGION="us-central1"
+SUBDOMAIN="dj.elama.top"
 SKIP_VOTES=3
 CROSSFADE=8
 

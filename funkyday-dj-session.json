@@ -1,0 +1,295 @@
+{
+  "session_meta": {
+    "date": "2026-05-29",
+    "project": "Tam's Parties",
+    "repo": "drtamar/spotify-skill",
+    "branch": "claude/dj-app-cloud-upload-review-xzOKp",
+    "user": "Tam (Israel)",
+    "next_session_goal": "Build the DJ system: guest requests, crowd reading, UI/UX, auth, database, music intelligence"
+  },
+
+  "project_identity": {
+    "name": "Tam's Parties — Alex Method DJ",
+    "description": "Autonomous party DJ on an old Android phone. Plays funky/groovy day-party music through 4 energy phases, watches the dance floor, auto-skips if crowd energy drops.",
+    "hardware": {
+      "device": "Old Android phone (plugged in, always-on)",
+      "audio_out": "Bluetooth speaker or AUX to sound system",
+      "camera": "Front/back camera — pointed at dance floor"
+    },
+    "mvp_software_stack": {
+      "music": "Spotify Premium (plays directly on phone)",
+      "camera_motion": "IP Webcam Pro — RTSP stream + motion detection + Tasker integration",
+      "automation": "Tasker — if no motion for 90-120s during Build/Peak → next track",
+      "backend": "spotify-api/scripts/ (Python, runs on PC or Raspberry Pi)"
+    }
+  },
+
+  "energy_phases": [
+    {
+      "phase": 1,
+      "name": "Warm-Up",
+      "duration_hours": "2-3",
+      "vibe": "Tribal, organic, percussion, didgeridoo, world music. People arriving.",
+      "sample_tracks": [
+        "Ganga Giri – Didjeridoo",
+        "St Germain – Rose Rouge",
+        "Thievery Corporation – Lebanese Blonde",
+        "Bonobo – Kerala",
+        "Emapea – Mind",
+        "Fat Freddy's Drop – Roady",
+        "Khruangbin – Time (You and I)",
+        "Desert Dwellers – Wandering Sadhu",
+        "Lane 8 – Road",
+        "Nickodemus – Sun People"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Build",
+      "duration_hours": "2-3",
+      "vibe": "Funky dancehall, modern reggae, groovy bass. Hips start moving.",
+      "sample_tracks": [
+        "Chronixx – Here Comes Trouble",
+        "Protoje – Resist Not",
+        "Kabaka Pyramid – Well Done",
+        "Damian Marley – Welcome to Jamrock",
+        "Vybz Kartel – Fever",
+        "Major Lazer – Pon de Floor",
+        "Sister Nancy – Bam Bam",
+        "Busy Signal – Night Shift",
+        "Alborosie – Kingston Town",
+        "Raging Fyah – Jah Glory"
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Peak",
+      "duration_hours": "3-4",
+      "vibe": "Nasty, funky, high-energy. Dancehall, afro, reggaeton, hip-hop grooves.",
+      "sample_tracks": [
+        "Peggy Gou – (It Goes Like) Nanana",
+        "Black Coffee – Turn Me On (feat. Bucie)",
+        "Anderson .Paak – Come Down",
+        "Kaytranada – You're the One (feat. Syd)",
+        "Burna Boy – Ye",
+        "Wizkid – Essence (feat. Tems)",
+        "Popcaan – Family",
+        "Sean Paul – Temperature",
+        "Dom Dolla – Take It",
+        "Michael Bibi – Hanging Tree"
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Wind Down / Sunset",
+      "duration_hours": "2-3",
+      "vibe": "Deep, melodic, groovy but breathable. Psychedelic. Still danceable.",
+      "sample_tracks": [
+        "FKJ – Vibin'",
+        "Jordan Rakei – Mind's Eye",
+        "Hiatus Kaiyote – Breathing Underwater",
+        "Khruangbin – August 10",
+        "ODESZA – A Moment Apart",
+        "Rufus Du Sol – Underwater",
+        "Bonobo – Migration",
+        "Emancipator – First Snow",
+        "Thievery Corporation – The Richest Man in Babylon",
+        "Tycho – Awake"
+      ]
+    }
+  ],
+
+  "cover_art_fixes_completed": {
+    "branch": "claude/dj-app-cloud-upload-review-xzOKp",
+    "commits": [
+      "8aec1b9 — Fix cover-art upload: JPEG output, size optimisation, error handling, tests",
+      "b81d5b3 — Address review: file-handle leaks, request timeout, Retry-After crash"
+    ],
+    "bugs_fixed": [
+      "PNG was sent as JPEG — now SVG→PNG (cairosvg)→RGB JPEG (Pillow) end-to-end",
+      "256 KB limit measured on raw bytes — now measured on base64-encoded size",
+      "_optimize_image quality loop did nothing for PNG — rewritten for JPEG",
+      "401 expired token blamed on missing scope — now 401=refresh, 403=scope error",
+      "No token refresh — added _refresh_access_token() with retry logic",
+      "Fixed temp filename collisions — now uses tempfile.mkstemp(suffix='.jpg')",
+      "Retry-After HTTP-date string crashed int() — wrapped in try/except (ValueError, TypeError)",
+      "PIL Image.open without context manager leaked file handles — fixed with 'with' statement",
+      "No retry on 429/5xx — added bounded backoff respecting Retry-After"
+    ],
+    "tests": {
+      "file": "spotify-api/test_cover_art.py",
+      "count": 13,
+      "status": "all passing"
+    },
+    "docs_updated": "spotify-api/COVER_ART_TROUBLESHOOTING.md"
+  },
+
+  "existing_code_inventory": {
+    "spotify_client_py": {
+      "path": "spotify-api/scripts/spotify_client.py",
+      "has": [
+        "search_tracks()",
+        "get_playlist()",
+        "create_playlist()",
+        "add_tracks_to_playlist()",
+        "get_current_user()",
+        "refresh_access_token()",
+        "_check_token_expiry()"
+      ],
+      "missing": [
+        "add_to_queue() — POST /me/player/queue",
+        "get_currently_playing() — GET /me/player/currently-playing",
+        "next_track() — POST /me/player/next",
+        "previous_track() — POST /me/player/previous",
+        "set_volume() — PUT /me/player/volume",
+        "get_playback_state() — GET /me/player"
+      ]
+    },
+    "cover_art_generator_py": {
+      "path": "spotify-api/scripts/cover_art_generator.py",
+      "status": "Fixed and working"
+    },
+    "deprecated_spotify_endpoints": [
+      "GET /audio-features — deprecated Nov 2024 for new apps (BPM, energy, danceability)",
+      "GET /recommendations — deprecated Nov 2024 for new apps"
+    ],
+    "alternative_for_bpm_energy": "Use Essentia (local), AcousticBrainz archive, or manual phase tagging"
+  },
+
+  "env_setup": {
+    "file": "spotify-api/.env",
+    "gitignored": true,
+    "redirect_uri": "http://127.0.0.1:8888/callback",
+    "user_todo": [
+      "1. Go to https://developer.spotify.com/dashboard",
+      "2. Open your app → Settings → Redirect URIs → Add: http://127.0.0.1:8888/callback",
+      "3. Copy Client ID and Client Secret into .env",
+      "4. Run: python get_refresh_token.py",
+      "5. Copy the printed refresh token into .env"
+    ],
+    "required_oauth_scopes": [
+      "playlist-read-private",
+      "playlist-modify-private",
+      "playlist-modify-public",
+      "ugc-image-upload",
+      "user-modify-playback-state",
+      "user-read-playback-state",
+      "user-read-currently-playing"
+    ]
+  },
+
+  "stack_risks": [
+    {
+      "risk": "Spotify audio-features + recommendations deprecated (Nov 2024)",
+      "impact": "Cannot get BPM/energy/danceability automatically for new apps",
+      "mitigation": "Manual phase tagging in playlist or use Essentia locally"
+    },
+    {
+      "risk": "IP Webcam motion threshold needs tuning per venue",
+      "impact": "Too sensitive = constant skipping; too dull = no reaction",
+      "mitigation": "Expose threshold as config param; log skip events"
+    },
+    {
+      "risk": "Tasker → Spotify skip only works if Spotify is the active player",
+      "impact": "If phone locks or Spotify loses focus, automation breaks",
+      "mitigation": "Set phone to never sleep/lock; use Tasker to keep Spotify foreground"
+    },
+    {
+      "risk": "Single old phone is single point of failure",
+      "impact": "Music stops if phone crashes",
+      "mitigation": "Keep a backup device or manual playlist on another device"
+    },
+    {
+      "risk": "Spotify 30s preview limit for non-premium search results",
+      "impact": "N/A — user has Premium",
+      "mitigation": "None needed"
+    },
+    {
+      "risk": "Spotify rate limits on queue/skip APIs",
+      "impact": "Rapid automated skips could get throttled",
+      "mitigation": "Min 30s between automated skips; respect Retry-After"
+    }
+  ],
+
+  "future_features_roadmap": {
+    "priority_1_next_session": [
+      {
+        "feature": "add_to_queue() in SpotifyClient",
+        "file": "spotify-api/scripts/spotify_client.py",
+        "endpoint": "POST /me/player/queue?uri={track_uri}"
+      },
+      {
+        "feature": "Phase-aware playlist builder",
+        "description": "Tag tracks with phase (1-4), build Spotify playlist in correct energy order"
+      },
+      {
+        "feature": "Guest request system (MVP)",
+        "description": "QR code on wall → simple web page → type song name → adds to queue",
+        "stack": "FastAPI endpoint + POST to /me/player/queue"
+      }
+    ],
+    "priority_2": [
+      {
+        "feature": "Crowd reading via IP Webcam",
+        "description": "Motion pixel diff → low energy threshold → Tasker → Spotify skip",
+        "tools": "IP Webcam Pro + Tasker (no code needed for MVP)"
+      },
+      {
+        "feature": "DJ memory / session log",
+        "description": "SQLite: log what played, energy events, guest requests, crowd response",
+        "file": "spotify-api/scripts/dj_session_log.py"
+      },
+      {
+        "feature": "Web UI for host",
+        "description": "See current phase, queue, crowd energy graph, recent requests",
+        "stack": "FastAPI + simple HTML/JS"
+      }
+    ],
+    "priority_3_future": [
+      "Auth (OAuth login for multiple users / guest access)",
+      "Database migration from SQLite to Supabase for persistence across sessions",
+      "Music intelligence: BPM/key analysis via Essentia locally",
+      "Self-evolving: track which songs got crowd reactions, weight them higher next party",
+      "Lighting sync (Govee / Philips Hue via local API)",
+      "Volume ducking when motion drops below threshold"
+    ]
+  },
+
+  "open_decisions_for_next_session": [
+    {
+      "decision": "Playlist structure",
+      "option_a": "1 master Spotify playlist with phase markers in track titles",
+      "option_b": "4 separate Spotify playlists (one per phase), jump between manually"
+    },
+    {
+      "decision": "Guest request UI hosting",
+      "option_a": "Run FastAPI on phone via Termux (local only, no internet needed)",
+      "option_b": "Run on PC/Raspberry Pi on same WiFi",
+      "option_c": "Deploy to Cloud Run (public URL, requires internet)"
+    },
+    {
+      "decision": "Crowd energy detection",
+      "option_a": "IP Webcam motion detection + Tasker (no-code, works today)",
+      "option_b": "Python script reading RTSP stream, pixel diff analysis (more control)"
+    },
+    {
+      "decision": "Database",
+      "option_a": "SQLite (file on phone/PC, zero setup)",
+      "option_b": "Supabase (hosted Postgres, accessible from anywhere)"
+    }
+  ],
+
+  "tam_s_dj_repo": {
+    "url": "https://github.com/drtamar/tam-s-Dj",
+    "status": "Private",
+    "note": "Zip was diffed vs branch — content identical. Only generated artifacts differ (.pytest_cache, __pycache__). Branch is the canonical source."
+  },
+
+  "pr_status": {
+    "pr_1": "Closed without merging (by user)",
+    "pr_2": "Merged — JetBrains config",
+    "pr_3": "Closed without merging (by user)",
+    "branch_intact": true,
+    "note": "Branch claude/dj-app-cloud-upload-review-xzOKp has all cover-art fixes. Not yet merged to main."
+  }
+}

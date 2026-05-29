@@ -22,7 +22,9 @@ determine colors using color psychology rather than relying on presets.
 """
 
 import os
+import time
 import base64
+import tempfile
 import requests
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
@@ -119,19 +121,57 @@ class CoverArtGenerator:
         access_token: Valid Spotify user access token
     """
     
-    def __init__(self, client_id: str, client_secret: str, access_token: str):
+    def __init__(self, client_id: str, client_secret: str, access_token: str,
+                 refresh_token: Optional[str] = None):
         """
         Initialize cover art generator.
-        
+
         Args:
             client_id: Spotify application client ID
             client_secret: Spotify application client secret
-            access_token: Valid Spotify user access token with playlist-modify scope
+            access_token: Valid Spotify user access token with the
+                'ugc-image-upload' scope (required to upload cover art)
+            refresh_token: Optional refresh token. When provided, an expired
+                access token is refreshed automatically before upload instead
+                of failing with a 401.
         """
         self.client_id = client_id
         self.client_secret = client_secret
         self.access_token = access_token
+        self.refresh_token = refresh_token
         self.base_url = "https://api.spotify.com/v1"
+
+    def _refresh_access_token(self) -> bool:
+        """
+        Refresh the access token using the stored refresh token.
+
+        Returns:
+            True if a new access token was obtained, False otherwise.
+        """
+        if not self.refresh_token:
+            return False
+        try:
+            auth_str = f"{self.client_id}:{self.client_secret}"
+            auth_bytes = base64.b64encode(auth_str.encode()).decode()
+            response = requests.post(
+                "https://accounts.spotify.com/api/token",
+                headers={
+                    "Authorization": f"Basic {auth_bytes}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": self.refresh_token,
+                },
+            )
+            if response.status_code == 200:
+                self.access_token = response.json()["access_token"]
+                return True
+            print(f"✗ Failed to refresh access token: {response.status_code}")
+            return False
+        except Exception as e:
+            print(f"✗ Error refreshing access token: {e}")
+            return False
     
     def create_and_upload_cover(
         self,
@@ -172,9 +212,9 @@ class CoverArtGenerator:
             ... )
             True
         """
+        jpg_path = None
         try:
-            # Generate cover art PNG
-            png_path = self.generate_cover_art(
+            jpg_path = self.generate_cover_art(
                 title=title,
                 subtitle=subtitle,
                 theme=theme,
@@ -183,21 +223,15 @@ class CoverArtGenerator:
                 gradient_start=gradient_start,
                 gradient_end=gradient_end,
                 text_color=text_color,
-                output_path=None  # Use temp file
+                output_path=None,  # Use a secure temp file
             )
-            
-            # Upload to Spotify
-            success = self.upload_cover_image(playlist_id, png_path)
-            
-            # Clean up temp file
-            if os.path.exists(png_path):
-                os.remove(png_path)
-            
-            return success
-            
+            return self.upload_cover_image(playlist_id, jpg_path)
         except Exception as e:
             print(f"Error creating and uploading cover: {e}")
             return False
+        finally:
+            if jpg_path and os.path.exists(jpg_path):
+                os.remove(jpg_path)
     
     def generate_cover_art(
         self,
@@ -278,23 +312,31 @@ class CoverArtGenerator:
             size=size
         )
         
-        # Convert SVG to PNG
+        # Convert SVG to PNG (in memory), then to JPEG.
+        # Spotify's PUT /playlists/{id}/images endpoint requires base64-encoded
+        # JPEG data, so we must produce a JPEG here (not a PNG).
         png_data = cairosvg.svg2png(
             bytestring=svg_content.encode('utf-8'),
             output_width=size,
             output_height=size
         )
-        
-        # Save to file or temp file
+
+        # JPEG has no alpha channel; flatten onto a white background.
+        img = Image.open(BytesIO(png_data)).convert("RGB")
+
+        # Determine output path (JPEG). If the caller passed a non-JPEG
+        # extension, normalize to .jpg so the file matches its contents.
         if output_path is None:
-            output_path = "temp_cover.png"
-        
-        with open(output_path, 'wb') as f:
-            f.write(png_data)
-        
-        # Optimize image size
+            fd, output_path = tempfile.mkstemp(suffix=".jpg")
+            os.close(fd)
+        elif not output_path.lower().endswith((".jpg", ".jpeg")):
+            output_path = os.path.splitext(output_path)[0] + ".jpg"
+
+        img.save(output_path, format="JPEG", quality=90)
+
+        # Ensure the base64-encoded payload fits Spotify's 256 KB limit.
         self._optimize_image(output_path, max_size_kb=256)
-        
+
         return output_path
     
     def _create_svg(
@@ -462,113 +504,166 @@ class CoverArtGenerator:
                 .replace('"', '&quot;')
                 .replace("'", '&apos;'))
     
+    @staticmethod
+    def _encoded_size(data: bytes) -> int:
+        """Size of `data` after base64 encoding (what Spotify actually limits)."""
+        return ((len(data) + 2) // 3) * 4
+
     def _optimize_image(self, image_path: str, max_size_kb: int = 256) -> None:
         """
-        Optimize PNG image to meet Spotify's size requirements.
-        
+        Optimize a JPEG image to meet Spotify's size requirements.
+
+        Spotify limits the *base64-encoded* payload to 256 KB, and base64
+        inflates the raw bytes by ~33%. We therefore measure the encoded size,
+        first lowering JPEG quality and then downscaling if needed.
+
         Args:
-            image_path: Path to PNG image
-            max_size_kb: Maximum file size in KB (default 256 for Spotify)
+            image_path: Path to the JPEG image (modified in place).
+            max_size_kb: Maximum base64-encoded size in KB (default 256).
         """
         max_size_bytes = max_size_kb * 1024
-        
-        # Check current size
-        current_size = os.path.getsize(image_path)
-        if current_size <= max_size_bytes:
-            return  # Already meets requirements
-        
-        # Load image
-        img = Image.open(image_path)
-        
-        # Try reducing quality
-        quality = 95
-        while quality > 20:
-            output = BytesIO()
-            img.save(output, format='PNG', optimize=True, quality=quality)
-            
-            if output.tell() <= max_size_bytes:
-                # Save optimized image
-                with open(image_path, 'wb') as f:
-                    f.write(output.getvalue())
+
+        img = Image.open(image_path).convert("RGB")
+
+        def render(image: "Image.Image", quality: int) -> bytes:
+            buf = BytesIO()
+            image.save(buf, format="JPEG", quality=quality, optimize=True)
+            return buf.getvalue()
+
+        # Try lowering quality at full resolution first.
+        for quality in range(90, 29, -10):
+            data = render(img, quality)
+            if self._encoded_size(data) <= max_size_bytes:
+                with open(image_path, "wb") as f:
+                    f.write(data)
                 return
-            
-            quality -= 5
-        
-        # If still too large, resize
+
+        # Still too large: progressively downscale at a modest quality.
         scale = 0.9
-        while os.path.getsize(image_path) > max_size_bytes and scale > 0.5:
-            new_size = (int(img.width * scale), int(img.height * scale))
+        best = render(img, 70)
+        while scale >= 0.4:
+            new_size = (max(1, int(img.width * scale)),
+                        max(1, int(img.height * scale)))
             resized = img.resize(new_size, Image.Resampling.LANCZOS)
-            
-            output = BytesIO()
-            resized.save(output, format='PNG', optimize=True)
-            
-            if output.tell() <= max_size_bytes:
-                with open(image_path, 'wb') as f:
-                    f.write(output.getvalue())
-                return
-            
+            data = render(resized, 70)
+            best = data
+            if self._encoded_size(data) <= max_size_bytes:
+                break
             scale -= 0.1
+
+        # Write the smallest version we produced (best effort).
+        with open(image_path, "wb") as f:
+            f.write(best)
     
-    def upload_cover_image(self, playlist_id: str, image_path: str) -> bool:
+    def upload_cover_image(self, playlist_id: str, image_path: str,
+                           max_retries: int = 3) -> bool:
         """
-        Upload cover image to Spotify playlist.
-        
+        Upload a cover image to a Spotify playlist.
+
+        The endpoint (`PUT /playlists/{id}/images`) expects base64-encoded
+        JPEG data with a `Content-Type: image/jpeg` header and a payload no
+        larger than 256 KB once encoded.
+
         Args:
             playlist_id: Spotify playlist ID
-            image_path: Path to image file (JPEG or PNG)
-        
+            image_path: Path to a JPEG image file
+            max_retries: Attempts for transient errors (429/5xx)
+
         Returns:
             True if successful, False otherwise
-        
+
         Example:
             >>> generator.upload_cover_image(
             ...     "37i9dQZF1DXcBWIGoYBM5M",
-            ...     "my_cover.png"
+            ...     "my_cover.jpg"
             ... )
             True
         """
         try:
-            # Read and encode image
             with open(image_path, 'rb') as f:
                 image_data = f.read()
-            
-            # Base64 encode
-            encoded_image = base64.b64encode(image_data).decode('utf-8')
-            
-            # Upload to Spotify
-            url = f"{self.base_url}/playlists/{playlist_id}/images"
+        except OSError as e:
+            print(f"✗ Could not read image '{image_path}': {e}")
+            return False
+
+        encoded_image = base64.b64encode(image_data).decode('utf-8')
+
+        encoded_kb = len(encoded_image) / 1024
+        if len(encoded_image) > 256 * 1024:
+            print(f"✗ Encoded image is {encoded_kb:.0f} KB, over Spotify's "
+                  f"256 KB limit. Regenerate (it should be optimized "
+                  f"automatically).")
+            return False
+
+        url = f"{self.base_url}/playlists/{playlist_id}/images"
+
+        refreshed = False
+        for attempt in range(max_retries):
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "image/jpeg"
+                "Content-Type": "image/jpeg",
             }
-            
-            response = requests.put(url, headers=headers, data=encoded_image)
-            
-            if response.status_code == 202:
+            try:
+                response = requests.put(url, headers=headers,
+                                        data=encoded_image, timeout=30)
+            except requests.RequestException as e:
+                print(f"✗ Network error uploading cover image: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return False
+
+            status = response.status_code
+
+            if status == 202:
                 print(f"✓ Cover art uploaded successfully to playlist {playlist_id}")
                 return True
-            elif response.status_code == 401:
-                print(f"✗ Failed to upload cover art: 401 Unauthorized")
+
+            if status == 401:
+                # Expired token -> try a one-time refresh before giving up.
+                if not refreshed and self._refresh_access_token():
+                    refreshed = True
+                    print("ℹ️  Access token expired; refreshed and retrying...")
+                    continue
+                print("✗ Failed to upload cover art: 401 Unauthorized")
                 print(f"  Response: {response.text}")
-                print("\n⚠️  MISSING SCOPE: The 'ugc-image-upload' scope is required!")
-                print("\nTo fix this:")
-                print("1. Go to https://developer.spotify.com/dashboard")
-                print("2. Select your app and ensure it has the 'ugc-image-upload' scope")
-                print("3. Re-run the OAuth flow to get a new refresh token with this scope")
-                print("4. Update your .env file with the new refresh token")
-                print("\nAlternatively, you can:")
-                print("- Generate cover art locally (it will save as PNG)")
-                print("- Manually upload it to Spotify via the web/mobile app")
+                print("\nYour access token is invalid or expired. Provide a "
+                      "refresh_token to CoverArtGenerator, or re-run "
+                      "get_refresh_token.py to obtain a fresh token.")
                 return False
-            else:
-                print(f"✗ Failed to upload cover art: {response.status_code}")
+
+            if status == 403:
+                print("✗ Failed to upload cover art: 403 Forbidden")
+                print(f"  Response: {response.text}")
+                print("\n⚠️  MISSING SCOPE: The 'ugc-image-upload' scope is required.")
+                print("Re-run get_refresh_token.py to authorize with this scope,")
+                print("then update SPOTIFY_REFRESH_TOKEN in your .env file.")
+                return False
+
+            if status == 400:
+                print("✗ Failed to upload cover art: 400 Bad Request")
+                print(f"  Response: {response.text}")
+                print("\nThe image data was rejected. It must be base64-encoded "
+                      "JPEG (not PNG) and ≤ 256 KB once encoded.")
+                return False
+
+            if status == 429 or status >= 500:
+                # Transient: honor Retry-After when present, else backoff.
+                if attempt < max_retries - 1:
+                    wait = int(response.headers.get("Retry-After", 2 ** attempt))
+                    print(f"⏳ Transient error {status}; retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
+                print(f"✗ Failed to upload cover art after {max_retries} "
+                      f"attempts: {status}")
                 print(f"  Response: {response.text}")
                 return False
-                
-        except Exception as e:
-            print(f"✗ Error uploading cover image: {e}")
+
+            print(f"✗ Failed to upload cover art: {status}")
+            print(f"  Response: {response.text}")
             return False
+
+        return False
 
 
 # Example usage

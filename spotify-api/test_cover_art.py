@@ -134,6 +134,26 @@ class TestUploadCoverImage(unittest.TestCase):
             os.unlink(path)
         self.assertTrue(result)
 
+    def test_retry_after_http_date_does_not_crash(self):
+        """A non-integer Retry-After (HTTP-date) must fall back to backoff."""
+        ok_resp = MagicMock(status_code=202, text="", headers={})
+        date_resp = MagicMock(
+            status_code=503, text="",
+            headers={"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"},
+        )
+        jpeg = _jpeg_bytes(100)
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            f.write(jpeg)
+            path = f.name
+        gen = _make_generator()
+        try:
+            with patch("requests.put", side_effect=[date_resp, ok_resp]), \
+                 patch("time.sleep"):
+                result = gen.upload_cover_image("pid", path)
+        finally:
+            os.unlink(path)
+        self.assertTrue(result)
+
     def test_oversized_payload_rejected_before_request(self):
         """Images whose base64 size exceeds 256 KB must be rejected locally."""
         gen = _make_generator()

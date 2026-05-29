@@ -163,6 +163,7 @@ class CoverArtGenerator:
                     "grant_type": "refresh_token",
                     "refresh_token": self.refresh_token,
                 },
+                timeout=30,
             )
             if response.status_code == 200:
                 self.access_token = response.json()["access_token"]
@@ -270,7 +271,9 @@ class CoverArtGenerator:
             gradient_start: Custom gradient start color
             gradient_end: Custom gradient end color
             text_color: Custom text color
-            output_path: Output PNG file path (None = temp file)
+            output_path: Output JPEG file path (None = secure temp file). A
+                non-JPEG extension is normalized to .jpg; always use the
+                returned path rather than the one you passed in.
             size: Output size in pixels (default 600x600)
         
         Returns:
@@ -321,21 +324,33 @@ class CoverArtGenerator:
             output_height=size
         )
 
-        # JPEG has no alpha channel; flatten onto a white background.
-        img = Image.open(BytesIO(png_data)).convert("RGB")
+        # JPEG has no alpha channel; flatten onto an RGB image. Use a context
+        # manager so the underlying file handle is released promptly.
+        with Image.open(BytesIO(png_data)) as raw_img:
+            img = raw_img.convert("RGB")
 
         # Determine output path (JPEG). If the caller passed a non-JPEG
         # extension, normalize to .jpg so the file matches its contents.
+        is_temp = False
         if output_path is None:
             fd, output_path = tempfile.mkstemp(suffix=".jpg")
             os.close(fd)
+            is_temp = True
         elif not output_path.lower().endswith((".jpg", ".jpeg")):
             output_path = os.path.splitext(output_path)[0] + ".jpg"
 
-        img.save(output_path, format="JPEG", quality=90)
-
-        # Ensure the base64-encoded payload fits Spotify's 256 KB limit.
-        self._optimize_image(output_path, max_size_kb=256)
+        try:
+            img.save(output_path, format="JPEG", quality=90)
+            # Ensure the base64-encoded payload fits Spotify's 256 KB limit.
+            self._optimize_image(output_path, max_size_kb=256)
+        except Exception:
+            # Don't leak the temp file we created if saving/optimizing fails.
+            if is_temp and os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+            raise
 
         return output_path
     
@@ -523,7 +538,8 @@ class CoverArtGenerator:
         """
         max_size_bytes = max_size_kb * 1024
 
-        img = Image.open(image_path).convert("RGB")
+        with Image.open(image_path) as raw_img:
+            img = raw_img.convert("RGB")
 
         def render(image: "Image.Image", quality: int) -> bytes:
             buf = BytesIO()
@@ -539,17 +555,17 @@ class CoverArtGenerator:
                 return
 
         # Still too large: progressively downscale at a modest quality.
-        scale = 0.9
-        best = render(img, 70)
-        while scale >= 0.4:
+        # Use integer percentages to avoid floating-point drift skipping the
+        # final step.
+        best = None
+        for scale_percent in range(90, 39, -10):
+            scale = scale_percent / 100.0
             new_size = (max(1, int(img.width * scale)),
                         max(1, int(img.height * scale)))
             resized = img.resize(new_size, Image.Resampling.LANCZOS)
-            data = render(resized, 70)
-            best = data
-            if self._encoded_size(data) <= max_size_bytes:
+            best = render(resized, 70)
+            if self._encoded_size(best) <= max_size_bytes:
                 break
-            scale -= 0.1
 
         # Write the smallest version we produced (best effort).
         with open(image_path, "wb") as f:
@@ -650,7 +666,12 @@ class CoverArtGenerator:
             if status == 429 or status >= 500:
                 # Transient: honor Retry-After when present, else backoff.
                 if attempt < max_retries - 1:
-                    wait = int(response.headers.get("Retry-After", 2 ** attempt))
+                    # Retry-After is usually seconds, but may be an HTTP-date;
+                    # fall back to exponential backoff if it isn't an integer.
+                    try:
+                        wait = int(response.headers.get("Retry-After", 2 ** attempt))
+                    except (ValueError, TypeError):
+                        wait = 2 ** attempt
                     print(f"⏳ Transient error {status}; retrying in {wait}s...")
                     time.sleep(wait)
                     continue
@@ -682,14 +703,16 @@ if __name__ == "__main__":
     generator = CoverArtGenerator(CLIENT_ID, CLIENT_SECRET, ACCESS_TOKEN)
     
     # Example: Generate cover art with 'summer' theme
+    # Note: the output is a JPEG; use the returned path (a .png you pass in is
+    # normalized to .jpg) rather than assuming the name you passed.
     print("Generating sample cover art with 'summer' theme...")
-    png_path = generator.generate_cover_art(
+    jpg_path = generator.generate_cover_art(
         title="Summer Vibes",
         subtitle="Feel Good Hits",
         theme="summer",
-        output_path="sample_cover.png"
+        output_path="sample_cover.jpg"
     )
-    print(f"✓ Cover art saved to: {png_path}")
+    print(f"✓ Cover art saved to: {jpg_path}")
     
     # To upload to a playlist:
     # generator.create_and_upload_cover(

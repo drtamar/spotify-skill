@@ -69,3 +69,6 @@ node_modules/
 # OS files
 Thumbs.db
 .DS_Store
+
+# Local utility scripts
+get_token_manual.py
